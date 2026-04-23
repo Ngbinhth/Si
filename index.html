@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anime Super Pixel Wars</title>
+    <style>
+        :root { --neon-green: #00ff41; --blood-red: #ff0000; --mana-blue: #00d2ff; }
+        body { margin: 0; background: #0b0b0b; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow: hidden; color: white; }
+        
+        #game-container { position: relative; width: 1000px; height: 500px; background: #000; border: 4px solid #333; overflow: hidden; box-shadow: 0 0 50px rgba(0,0,0,0.8); }
+        canvas { display: block; image-rendering: pixelated; }
+
+        /* UI Overlays */
+        .overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100; transition: 0.5s; }
+        .bg-blur { background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(10px); }
+        .hidden { opacity: 0; pointer-events: none; visibility: hidden; }
+
+        /* Menu & Char Select */
+        h1 { font-size: 50px; text-transform: uppercase; letter-spacing: 5px; color: var(--neon-green); text-shadow: 3px 3px var(--blood-red); margin-bottom: 20px; }
+        .menu-btn { padding: 15px 50px; font-size: 20px; background: transparent; border: 2px solid var(--neon-green); color: white; cursor: pointer; transition: 0.3s; clip-path: polygon(10% 0, 100% 0, 90% 100%, 0% 100%); }
+        .menu-btn:hover { background: var(--neon-green); color: black; box-shadow: 0 0 20px var(--neon-green); }
+
+        .char-wrapper { width: 90%; max-height: 350px; overflow-y: auto; display: grid; grid-template-columns: repeat(6, 1fr); gap: 15px; padding: 20px; background: rgba(255,255,255,0.05); border-radius: 10px; border: 1px solid #444; }
+        .char-card { background: #222; border: 2px solid #444; padding: 15px 5px; cursor: pointer; text-align: center; transition: 0.2s; font-size: 13px; font-weight: bold; }
+        .char-card:hover { border-color: var(--neon-green); transform: translateY(-5px); }
+        .char-card.selected { border-color: yellow; background: #333; box-shadow: inset 0 0 15px rgba(255,255,0,0.3); }
+
+        /* Battle HUD */
+        .hud { position: absolute; top: 0; width: 100%; height: 100%; pointer-events: none; z-index: 50; }
+        .player-info { position: absolute; width: 350px; top: 25px; }
+        .health-container { width: 100%; height: 28px; background: #300; border: 2px solid #fff; position: relative; box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
+        .health-bar { height: 100%; background: linear-gradient(to bottom, #ff4b2b, #ff416c); width: 100%; transition: width 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        .mana-bar { height: 10px; background: var(--mana-blue); width: 0%; margin-top: 8px; border: 1px solid #fff; transition: 0.2s; box-shadow: 0 0 10px var(--mana-blue); }
+        .name-label { font-size: 18px; font-weight: bold; text-transform: uppercase; margin-bottom: 5px; text-shadow: 2px 2px #000; }
+
+        /* Controls */
+        .action-controls { position: absolute; bottom: 20px; width: 100%; display: flex; justify-content: space-between; padding: 0 40px; box-sizing: border-box; pointer-events: auto; }
+        .ctrl-group { display: flex; gap: 15px; }
+        .round-btn { width: 65px; height: 65px; background: rgba(0,0,0,0.6); border: 2px solid #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; cursor: pointer; transition: 0.1s; color: #fff; box-shadow: 0 4px 0 #666; }
+        .round-btn:active { transform: translateY(4px); box-shadow: none; background: #fff; color: #000; }
+        
+        #announcer { position: absolute; top: 40%; width: 100%; text-align: center; font-size: 100px; font-weight: 900; color: yellow; text-shadow: 5px 5px #ff0000; font-style: italic; pointer-events: none; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="stage" width="1000" height="500"></canvas>
+
+    <div id="ui-menu" class="overlay bg-blur">
+        <h1>Anime Pixel Wars</h1>
+        <button class="menu-btn" onclick="showCharSelect()">BẮT ĐẦU CHIẾN ĐẤU</button>
+        <p style="margin-top: 20px; color: #888;">AI thông minh • 100+ Nhân vật • Hiệu ứng chất lượng</p>
+    </div>
+
+    <div id="ui-select" class="overlay bg-blur hidden">
+        <h2 style="color: yellow;">CHỌN NHÂN VẬT CỦA BẠN</h2>
+        <div class="char-wrapper" id="char-list"></div>
+        <div style="margin-top: 20px; display: flex; gap: 20px;">
+            <button class="menu-btn" style="border-color: #ff4b2b;" onclick="location.reload()">QUAY LẠI</button>
+            <button class="menu-btn" id="fight-btn" style="display: none;" onclick="startBattle()">VÀO TRẬN!</button>
+        </div>
+    </div>
+
+    <div id="ui-hud" class="hud hidden">
+        <div id="announcer"></div>
+        
+        <div class="player-info" style="left: 30px;">
+            <div class="name-label" id="p1-name">NHÂN VẬT 1</div>
+            <div class="health-container"><div id="p1-hp" class="health-bar"></div></div>
+            <div id="p1-mp" class="mana-bar"></div>
+        </div>
+
+        <div class="player-info" style="right: 30px; text-align: right;">
+            <div class="name-label" id="p2-name">MÁY (CPU)</div>
+            <div class="health-container"><div id="p2-hp" class="health-bar" style="float: right;"></div></div>
+            <div id="p2-mp" class="mana-bar" style="float: right;"></div>
+        </div>
+
+        <div class="action-controls">
+            <div class="ctrl-group">
+                <div class="round-btn" onmousedown="controls.left=true" onmouseup="controls.left=false">←</div>
+                <div class="round-btn" onmousedown="controls.up=true" onmouseup="controls.up=false">↑</div>
+                <div class="round-btn" onmousedown="controls.right=true" onmouseup="controls.right=false">→</div>
+            </div>
+            <div class="ctrl-group">
+                <div class="round-btn" style="background: #e67e22;" onclick="handleAction('charge')">GỒNG</div>
+                <div class="round-btn" style="background: #c0392b;" onclick="handleAction('atk')">ĐÁNH</div>
+                <div class="round-btn" style="background: #2980b9;" onclick="handleAction('s1')">S1</div>
+                <div class="round-btn" style="background: #8e44ad;" onclick="handleAction('s2')">S2</div>
+                <div class="round-btn" style="background: #f1c40f; color: #000;" onclick="handleAction('s3')">ULTI</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+/** * DANH SÁCH NHÂN VẬT ĐẦY ĐỦ 
+ * Bạn có thể thêm hàng trăm nhân vật vào mảng 'names'
+ */
+const names = [
+    "Heatblast", "Wildmutt", "Diamondhead", "XLR8", "Four Arms", "Stinkfly", "Upgrade", "Ghostfreak", "Cannonbolt", "Way Big", "Feedback", "Swampfire", "Humungousaur", "Alien X",
+    "Tanjirou", "Nezuko", "Zenitsu", "Inosuke", "Giyuu", "Shinobu", "Rengoku", "Akaza", "Muzan", "Kokushibou", "Douma",
+    "Naruto", "Sasuke", "Sakura", "Kakashi", "Itachi", "Madara", "Obito", "Pain", "Gaara", "Jiraiya", "Minato",
+    "Luffy", "Zoro", "Nami", "Usopp", "Sanji", "Robin", "Chopper", "Franky", "Brook", "Jinbe", "Ace", "Shanks", "Kaido", "Big Mom", "Law",
+    "Doraemon", "Nobita", "Shizuka", "Jaian", "Suneo",
+    "Yuji", "Megumi", "Nobara", "Gojo", "Sukuna", "Toji", "Yuta", "Mahito", "Jogo", "Nanami"
+];
+
+const charDatabase = names.map(n => ({
+    name: n,
+    color: `hsl(${Math.random() * 360}, 60%, 50%)`,
+    projectileColor: `hsl(${Math.random() * 360}, 80%, 60%)`
+}));
+
+// --- CẤU HÌNH HỆ THỐNG ---
+const canvas = document.getElementById('stage');
+const ctx = canvas.getContext('2d');
+const controls = { left: false, right: false, up: false };
+let player, enemy, particles = [], bullets = [], gameActive = false, screenShake = 0;
+
+class Particle {
+    constructor(x, y, color) {
+        this.x = x; this.y = y;
+        this.color = color;
+        this.vx = (Math.random() - 0.5) * 10;
+        this.vy = (Math.random() - 0.5) * 10;
+        this.alpha = 1;
+        this.life = 1;
+    }
+    update() {
+        this.x += this.vx; this.y += this.vy;
+        this.life -= 0.02;
+        this.alpha = this.life;
+    }
+    draw() {
+        ctx.globalAlpha = this.alpha;
+        ctx.fillStyle = this.color;
+        ctx.fillRect(this.x, this.y, 4, 4);
+        ctx.globalAlpha = 1;
+    }
+}
+
+class Projectile {
+    constructor(x, y, dir, color, owner, power) {
+        this.x = x; this.y = y; this.dir = dir;
+        this.color = color; this.owner = owner;
+        this.power = power;
+        this.speed = 15;
+        this.radius = 10 + (power/2);
+    }
+    update() {
+        this.x += this.dir * this.speed;
+        let target = (this.owner === player) ? enemy : player;
+        // Va chạm đạn
+        if (Math.abs(this.x - (target.x + target.w/2)) < target.w/2 + this.radius &&
+            Math.abs(this.y - (target.y + target.h/2)) < target.h/2 + this.radius) {
+            target.takeDamage(this.power);
+            this.active = false;
+            createImpact(this.x, this.y, this.color);
+        }
+        if (this.x < 0 || this.x > canvas.width) this.active = false;
+    }
+    draw() {
+        ctx.shadowBlur = 20; ctx.shadowColor = this.color;
+        ctx.fillStyle = this.color;
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2); ctx.fill();
+        ctx.shadowBlur = 0;
+    }
+}
+
+class Fighter {
+    constructor(x, y, data, isAI) {
+        this.x = x; this.y = y; this.w = 50; this.h = 80;
+        this.data = data; this.isAI = isAI;
+        this.hp = 100; this.mp = 0;
+        this.vx = 0; this.vy = 0;
+        this.facing = isAI ? -1 : 1;
+        this.onGround = false;
+        this.state = 'idle'; // idle, attack, charge, hit
+        this.stateTimer = 0;
+    }
+
+    draw() {
+        ctx.save();
+        // Bóng dưới chân
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.beginPath();
+        ctx.ellipse(this.x + this.w/2, 430, 30, 10, 0, 0, Math.PI*2);
+        ctx.fill();
+
+        // Thân nhân vật
+        ctx.fillStyle = this.data.color;
+        if (this.state === 'hit') ctx.fillStyle = 'white';
+        ctx.fillRect(this.x, this.y, this.w, this.h);
+        
+        // Mắt
+        ctx.fillStyle = 'black';
+        let ex = this.facing === 1 ? this.x + 35 : this.x + 5;
+        ctx.fillRect(ex, this.y + 20, 10, 10);
+
+        // Hiệu ứng gồng Mp
+        if (this.state === 'charge') {
+            ctx.strokeStyle = '#00d2ff';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(this.x - 10, this.y - 10, this.w + 20, this.h + 20);
+        }
+
+        // Cánh tay khi đấm
+        if (this.state === 'attack') {
+            ctx.fillStyle = this.data.color;
+            ctx.fillRect(this.x + (this.facing === 1 ? this.w : -30), this.y + 30, 30, 15);
+        }
+        ctx.restore();
+    }
+
+    update() {
+        // Trọng lực & Vật lý
+        this.vy += 0.8;
+        this.x += this.vx;
+        this.y += this.vy;
+
+        if (this.y + this.h > 430) {
+            this.y = 430 - this.h;
+            this.vy = 0;
+            this.onGround = true;
+        }
+
+        this.vx *= 0.8; // Ma sát
+
+        if (!gameActive) return;
+
+        if (this.isAI) this.updateAI();
+        else this.updatePlayer();
+
+        // Giới hạn biên
+        this.x = Math.max(0, Math.min(canvas.width - this.w, this.x));
+        
+        // Timer trạng thái
+        if (this.stateTimer > 0) {
+            this.stateTimer--;
+            if (this.stateTimer === 0) this.state = 'idle';
+        }
+
+        // Tự hồi Mana nhẹ
+        this.mp = Math.min(100, this.mp + 0.05);
+    }
+
+    updatePlayer() {
+        if (this.state === 'charge') {
+            this.mp = Math.min(100, this.mp + 0.5);
+            return; 
+        }
+        if (controls.left) { this.vx = -6; this.facing = -1; }
+        if (controls.right) { this.vx = 6; this.facing = 1; }
+        if (controls.up && this.onGround) { this.vy = -18; this.onGround = false; }
+    }
+
+    updateAI() {
+        const dist = player.x - this.x;
+        const absDist = Math.abs(dist);
+
+        // AI Logic: Thả diều & Phản xạ
+        if (absDist > 300) {
+            this.vx = Math.sign(dist) * 4;
+            this.facing = Math.sign(dist);
+        } else if (absDist < 150) {
+            this.vx = -Math.sign(dist) * 3; // Lùi
+            this.facing = Math.sign(dist);
+        }
+
+        // Tự quyết định tấn công
+        if (Math.random() < 0.02 && this.state === 'idle') {
+            if (absDist < 80) this.performAction('atk');
+            else if (this.mp >= 40) this.performAction('s2');
+            else if (this.mp < 20) { this.state = 'charge'; this.stateTimer = 60; }
+        }
+    }
+
+    takeDamage(amount) {
+        this.hp -= amount;
+        this.state = 'hit';
+        this.stateTimer = 10;
+        screenShake = 15;
+        createImpact(this.x + this.w/2, this.y + this.h/2, '#fff');
+        updateHUD();
+    }
+
+    performAction(type) {
+        if (this.state === 'hit') return;
+        
+        if (type === 'atk') {
+            this.state = 'attack';
+            this.stateTimer = 15;
+            let target = this.isAI ? player : enemy;
+            if (Math.abs(this.x - target.x) < 90 && Math.abs(this.y - target.y) < 50) {
+                target.takeDamage(7);
+                target.vx = this.facing * 10;
+            }
+        } else if (type === 'charge') {
+            this.state = (this.state === 'charge') ? 'idle' : 'charge';
+        } else {
+            // Kỹ năng
+            let cost = type === 's1' ? 20 : (type === 's2' ? 40 : 80);
+            if (this.mp < cost) return;
+            this.mp -= cost;
+            this.state = 'attack';
+            this.stateTimer = 20;
+            bullets.push(new Projectile(this.x + this.w/2, this.y + 40, this.facing, this.data.projectileColor, this, cost/2.5));
+        }
+        updateHUD();
+    }
+}
+
+// --- QUẢN LÝ GAME ---
+function showCharSelect() {
+    document.getElementById('ui-menu').classList.add('hidden');
+    document.getElementById('ui-select').classList.remove('hidden');
+    const list = document.getElementById('char-list');
+    list.innerHTML = '';
+    charDatabase.forEach((char, idx) => {
+        const card = document.createElement('div');
+        card.className = 'char-card';
+        card.innerHTML = `<div style="width:30px;height:30px;background:${char.color};margin:0 auto 10px"></div>${char.name}`;
+        card.onclick = () => {
+            document.querySelectorAll('.char-card').forEach(c => c.classList.remove('selected'));
+            card.classList.add('selected');
+            player = new Fighter(150, 300, char, false);
+            document.getElementById('fight-btn').style.display = 'block';
+        };
+        list.appendChild(card);
+    });
+}
+
+function startBattle() {
+    document.getElementById('ui-select').classList.add('hidden');
+    document.getElementById('ui-hud').classList.remove('hidden');
+    
+    const randomEnemy = charDatabase[Math.floor(Math.random() * charDatabase.length)];
+    enemy = new Fighter(800, 300, randomEnemy, true);
+
+    document.getElementById('p1-name').innerText = player.data.name;
+    document.getElementById('p2-name').innerText = enemy.data.name + " (CPU)";
+
+    // Sequence Start
+    const ann = document.getElementById('announcer');
+    const seq = ["3", "2", "1", "FIGHT!"];
+    let i = 0;
+    const interval = setInterval(() => {
+        ann.innerText = seq[i];
+        if (i === seq.length) {
+            ann.innerText = "";
+            gameActive = true;
+            clearInterval(interval);
+            gameLoop();
+        }
+        i++;
+    }, 800);
+}
+
+function createImpact(x, y, color) {
+    for (let i = 0; i < 15; i++) particles.push(new Particle(x, y, color));
+}
+
+function updateHUD() {
+    document.getElementById('p1-hp').style.width = Math.max(0, player.hp) + "%";
+    document.getElementById('p2-hp').style.width = Math.max(0, enemy.hp) + "%";
+    document.getElementById('p1-mp').style.width = player.mp + "%";
+    document.getElementById('p2-mp').style.width = enemy.mp + "%";
+
+    if (player.hp <= 0 || enemy.hp <= 0) {
+        gameActive = false;
+        document.getElementById('announcer').innerText = "K.O";
+        setTimeout(() => location.reload(), 3000);
+    }
+}
+
+function handleAction(act) {
+    if (gameActive) player.performAction(act);
+}
+
+function gameLoop() {
+    if (!gameActive && document.getElementById('announcer').innerText !== "K.O") return;
+
+    // Screen Shake
+    let sx = 0, sy = 0;
+    if (screenShake > 0) {
+        sx = (Math.random() - 0.5) * screenShake;
+        sy = (Math.random() - 0.5) * screenShake;
+        screenShake *= 0.9;
+    }
+
+    ctx.setTransform(1, 0, 0, 1, sx, sy);
+    ctx.clearRect(-20, -20, canvas.width+40, canvas.height+40);
+
+    // Vẽ nền (Stage)
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(0, 430, canvas.width, 70);
+    ctx.strokeStyle = varColor('--neon-green');
+    ctx.lineWidth = 2;
+    ctx.strokeRect(0, 430, canvas.width, 2);
+
+    // Update Thực thể
+    player.update(); player.draw();
+    enemy.update(); enemy.draw();
+
+    bullets.forEach((b, i) => {
+        b.update(); b.draw();
+        if (b.active === false) bullets.splice(i, 1);
+    });
+
+    particles.forEach((p, i) => {
+        p.update(); p.draw();
+        if (p.life <= 0) particles.splice(i, 1);
+    });
+
+    requestAnimationFrame(gameLoop);
+}
+
+function varColor(name) { return getComputedStyle(document.documentElement).getPropertyValue(name); }
+
+// Keyboard Support
+window.addEventListener('keydown', e => {
+    if (e.key === 'ArrowLeft' || e.key === 'a') controls.left = true;
+    if (e.key === 'ArrowRight' || e.key === 'd') controls.right = true;
+    if (e.key === 'ArrowUp' || e.key === 'w') controls.up = true;
+    if (e.key === 'j') handleAction('atk');
+    if (e.key === 'k') handleAction('charge');
+    if (e.key === '1') handleAction('s1');
+    if (e.key === '2') handleAction('s2');
+    if (e.key === '3') handleAction('s3');
+});
+window.addEventListener('keyup', e => {
+    if (e.key === 'ArrowLeft' || e.key === 'a') controls.left = false;
+    if (e.key === 'ArrowRight' || e.key === 'd') controls.right = false;
+    if (e.key === 'ArrowUp' || e.key === 'w') controls.up = false;
+});
+</script>
+</body>
+</html>
